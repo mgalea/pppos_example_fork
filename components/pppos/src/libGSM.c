@@ -15,9 +15,12 @@
 #include "driver/uart.h"
 #include "driver/gpio.h"
 #include "tcpip_adapter.h"
-#include "netif/ppp/pppos.h"
 #include "netif/ppp/ppp.h"
-#include "lwip/pppapi.h"
+
+#include "netif/ppp/pppapi.h"
+#include "netif/ppp/pppos.h"
+#include "lwip/dns.h"
+
 
 #include "libGSM.h"
 
@@ -155,10 +158,10 @@ static GSM_Cmd cmd_APN =
 
 static GSM_Cmd cmd_Connect =
 {
-	.cmd = "AT+CGDATA=\"PPP\",1\r\n",
-	.cmdSize = sizeof("AT+CGDATA=\"PPP\",1\r\n")-1,
-	//.cmd = "ATDT*99***1#\r\n",
-	//.cmdSize = sizeof("ATDT*99***1#\r\n")-1,
+	//.cmd = "AT+CGDATA=\"PPP\",1\r\n",
+	//.cmdSize = sizeof("AT+CGDATA=\"PPP\",1\r\n")-1,
+	.cmd = "ATDT*99***1#\r\n",
+	.cmdSize = sizeof("ATDT*99***1#\r\n")-1,
 	.cmdResponseOnOk = "CONNECT",
 	.timeoutMs = 30000,
 	.delayMs = 1000,

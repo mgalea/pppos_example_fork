@@ -23,14 +23,16 @@
 
 #include "driver/uart.h"
 
-#include "netif/ppp/pppos.h"
 #include "netif/ppp/ppp.h"
+#include "netif/ppp/pppapi.h"
+#include "netif/ppp/pppos.h"
+
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
-#include "lwip/pppapi.h"
+
 
 #include "mbedtls/platform.h"
 #include "mbedtls/net.h"
@@ -44,7 +46,7 @@
 #include <esp_event.h>
 #include <esp_wifi.h>
 
-#include "apps/sntp/sntp.h"
+#include "esp_sntp.h"
 #include "cJSON.h"
 
 #include "libGSM.h"
@@ -58,7 +60,7 @@
 #define EXAMPLE_TASK_PAUSE	300		// pause between task runs in seconds
 #define TASK_SEMAPHORE_WAIT 140000	// time to wait for mutex in miliseconds
 
-QueueHandle_t http_mutex;
+                        QueueHandle_t http_mutex;
 
 static const char *TIME_TAG = "[SNTP]";
 static const char *HTTP_TAG = "[HTTP]";
