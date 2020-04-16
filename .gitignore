@@ -22,6 +22,12 @@ sdkconfig.old
 sdkconfig.lobo
 BUILD
 
+.vscode
+.vscode/
+
+.settings
+.settings/
+
 build/
 temp/
 *.dis
