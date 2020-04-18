@@ -49,6 +49,8 @@
 #include "esp_sntp.h"
 #include "cJSON.h"
 
+#include "driver/gpio.h"
+
 #include "libGSM.h"
 
 #ifdef CONFIG_GSM_USE_WIFI_AP
@@ -126,6 +128,7 @@ static const char *SSL_REQUEST = "GET " SSL_WEB_URL " HTTP/1.1\r\n"
    To embed it in the app binary, the PEM file is named
    in the component.mk COMPONENT_EMBED_TXTFILES variable.
 */
+
 extern const uint8_t server_root_cert_pem_start[] asm("_binary_server_root_cert_pem_start");
 extern const uint8_t server_root_cert_pem_end[]   asm("_binary_server_root_cert_pem_end");
 
@@ -171,7 +174,7 @@ static void parse_object(cJSON *item)
 
 		subitem=subitem->next;
 	}
-}
+} 
 
 //============================================
 static void https_get_task(void *pvParameters)
@@ -1052,6 +1055,7 @@ void app_main()
 	// ==== Create PPPoS tasks ====
     xTaskCreate(&http_get_task, "http_get_task", 4096, NULL, 5, NULL);
     xTaskCreate(&https_get_task, "https_get_task", 16384, NULL, 4, NULL);
+
 	#ifdef CONFIG_GSM_SEND_SMS
 	// ==== Create SMS task ====
     xTaskCreate(&sms_task, "sms_task", 4096, NULL, 3, NULL);

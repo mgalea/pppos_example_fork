@@ -14,6 +14,7 @@
 
 #include "driver/uart.h"
 #include "driver/gpio.h"
+
 #include "tcpip_adapter.h"
 #include "netif/ppp/ppp.h"
 
@@ -24,11 +25,26 @@
 
 #include "libGSM.h"
 
+void sim800_power_on();
+
 
 // === GSM configuration that you can set via 'make menuconfig'. ===
-#define UART_GPIO_TX CONFIG_GSM_TX
-#define UART_GPIO_RX CONFIG_GSM_RX
+#define UART_GPIO_TX CONFIG_GSM_RX
+#define UART_GPIO_RX CONFIG_GSM_TX
 #define UART_BDRATE CONFIG_GSM_BDRATE
+
+#define GSM_GPIO_POWER CONFIG_GSM_POWER
+#define GSM_GPIO_PWKEY CONFIG_GSM_PWKEY
+#define GSM_GPIO_RST CONFIG_GSM_RST
+
+#define set_sim800_pwkey() gpio_set_level(CONFIG_GSM_PWKEY, 1)
+#define clear_sim800_pwkey() gpio_set_level(CONFIG_GSM_PWKEY, 0)
+
+#define set_sim800_rst() gpio_set_level(GSM_GPIO_RST, 1)
+#define clear_sim800_rst() gpio_set_level(GSM_GPIO_RST, 0)
+
+#define set_sim800_pwrsrc() gpio_set_level(GSM_GPIO_POWER, 1)
+#define clear_sim800_pwrsrc() gpio_set_level(GSM_GPIO_POWER, 0)
 
 #ifdef CONFIG_GSM_DEBUG
 #define GSM_DEBUG 1
@@ -36,7 +52,8 @@
 #define GSM_DEBUG 0
 #endif
 #define BUF_SIZE (1024)
-#define GSM_OK_Str "OK"
+#define GSM_OK_STR "OK"
+#define GSM_ERROR_STR "ERROR"
 #define PPPOSMUTEX_TIMEOUT 1000 / portTICK_RATE_MS
 
 #define PPPOS_CLIENT_STACK_SIZE 1024*3
@@ -80,7 +97,7 @@ static GSM_Cmd cmd_AT =
 {
 	.cmd = "AT\r\n",
 	.cmdSize = sizeof("AT\r\n")-1,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 300,
 	.delayMs = 0,
 	.skip = 0,
@@ -90,17 +107,28 @@ static GSM_Cmd cmd_NoSMSInd =
 {
 	.cmd = "AT+CNMI=0,0,0,0,0\r\n",
 	.cmdSize = sizeof("AT+CNMI=0,0,0,0,0\r\n")-1,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 1000,
 	.delayMs = 0,
 	.skip = 0,
 };
 
+static GSM_Cmd cmd_SimpleResponse=
+{
+	.cmd = "AT+CMEE=1\r\n",
+	.cmdSize = sizeof("AT+CMEE=1\r\n")-1,
+	.cmdResponseOnOk = GSM_OK_STR,
+	.timeoutMs = 1000,
+	.delayMs = 0,
+	.skip = 0,
+};
+
+
 static GSM_Cmd cmd_Reset =
 {
 	.cmd = "ATZ\r\n",
 	.cmdSize = sizeof("ATZ\r\n")-1,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 300,
 	.delayMs = 0,
 	.skip = 0,
@@ -110,7 +138,7 @@ static GSM_Cmd cmd_RFOn =
 {
 	.cmd = "AT+CFUN=1\r\n",
 	.cmdSize = sizeof("ATCFUN=1,0\r\n")-1,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 10000,
 	.delayMs = 1000,
 	.skip = 0,
@@ -120,7 +148,7 @@ static GSM_Cmd cmd_EchoOff =
 {
 	.cmd = "ATE0\r\n",
 	.cmdSize = sizeof("ATE0\r\n")-1,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 300,
 	.delayMs = 0,
 	.skip = 0,
@@ -150,7 +178,7 @@ static GSM_Cmd cmd_APN =
 {
 	.cmd = NULL,
 	.cmdSize = 0,
-	.cmdResponseOnOk = GSM_OK_Str,
+	.cmdResponseOnOk = GSM_OK_STR,
 	.timeoutMs = 8000,
 	.delayMs = 0,
 	.skip = 0,
@@ -171,6 +199,7 @@ static GSM_Cmd cmd_Connect =
 static GSM_Cmd *GSM_Init[] =
 {
 		&cmd_AT,
+		&cmd_SimpleResponse,
 		&cmd_Reset,
 		&cmd_EchoOff,
 		&cmd_RFOn,
@@ -428,11 +457,11 @@ static int atCmd_waitResponse(char * cmd, char *resp, char * resp1, int cmdSize,
 //------------------------------------
 static void _disconnect(uint8_t rfOff)
 {
-	int res = atCmd_waitResponse("AT\r\n", GSM_OK_Str, NULL, 4, 1000, NULL, 0);
+	int res = atCmd_waitResponse("AT\r\n", GSM_OK_STR, NULL, 4, 1000, NULL, 0);
 	if (res == 1) {
 		if (rfOff) {
 			cmd_Reg.timeoutMs = 10000;
-			res = atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_Str, NULL, 11, 10000, NULL, 0); // disable RF function
+			res = atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_STR, NULL, 11, 10000, NULL, 0); // disable RF function
 		}
 		return;
 	}
@@ -447,7 +476,7 @@ static void _disconnect(uint8_t rfOff)
 	vTaskDelay(1100 / portTICK_PERIOD_MS);
 
 	int n = 0;
-	res = atCmd_waitResponse("ATH\r\n", GSM_OK_Str, "NO CARRIER", 5, 3000, NULL, 0);
+	res = atCmd_waitResponse("ATH\r\n", GSM_OK_STR, "NO CARRIER", 5, 3000, NULL, 0);
 	while (res == 0) {
 		n++;
 		if (n > 10) {
@@ -462,12 +491,12 @@ static void _disconnect(uint8_t rfOff)
 			vTaskDelay(1000 / portTICK_PERIOD_MS);
 		}
 		vTaskDelay(100 / portTICK_PERIOD_MS);
-		res = atCmd_waitResponse("ATH\r\n", GSM_OK_Str, "NO CARRIER", 5, 3000, NULL, 0);
+		res = atCmd_waitResponse("ATH\r\n", GSM_OK_STR, "NO CARRIER", 5, 3000, NULL, 0);
 	}
 	vTaskDelay(100 / portTICK_PERIOD_MS);
 	if (rfOff) {
 		cmd_Reg.timeoutMs = 10000;
-		res = atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_Str, NULL, 11, 3000, NULL, 0);
+		res = atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_STR, NULL, 11, 3000, NULL, 0);
 	}
 	#if GSM_DEBUG
 	ESP_LOGI(TAG,"DISCONNECTED.");
@@ -493,6 +522,8 @@ static void pppos_client_task()
 	pppos_task_started = 1;
 	xSemaphoreGive(pppos_mutex);
 
+	sim800_power_on();
+
     // Allocate receive buffer
     char* data = (char*) malloc(BUF_SIZE);
     if (data == NULL) {
@@ -509,7 +540,7 @@ static void pppos_client_task()
 	char PPP_ApnATReq[sizeof(CONFIG_GSM_APN)+24];
 	
 	uart_config_t uart_config = {
-			.baud_rate = UART_BDRATE,
+			.baud_rate = 115200,
 			.data_bits = UART_DATA_8_BITS,
 			.parity = UART_PARITY_DISABLE,
 			.stop_bits = UART_STOP_BITS_1,
@@ -519,15 +550,15 @@ static void pppos_client_task()
 	//Configure UART1 parameters
 	if (uart_param_config(uart_num, &uart_config)) goto exit;
 	//Set UART1 pins(TX, RX, RTS, CTS)
-	if (uart_set_pin(uart_num, UART_GPIO_TX, UART_GPIO_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)) goto exit;
+	if (uart_set_pin(uart_num, 27, 26, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE)) goto exit;
 	if (uart_driver_install(uart_num, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, 0)) goto exit;
 
 	// Set APN from config
 	sprintf(PPP_ApnATReq, "AT+CGDCONT=1,\"IP\",\"%s\"\r\n", CONFIG_GSM_APN);
-	cmd_APN.cmd = PPP_ApnATReq;
-	cmd_APN.cmdSize = strlen(PPP_ApnATReq);
+		cmd_APN.cmd = PPP_ApnATReq;
+		cmd_APN.cmdSize = strlen(PPP_ApnATReq);
 
-	_disconnect(1); // Disconnect if connected
+		_disconnect(1); // Disconnect if connected
 
 	xSemaphoreTake(pppos_mutex, PPPOSMUTEX_TIMEOUT);
     pppos_tx_count = 0;
@@ -603,6 +634,7 @@ static void pppos_client_task()
 		else xSemaphoreGive(pppos_mutex);
 
 		pppapi_set_default(ppp);
+		ppp_set_usepeerdns(ppp, 1);
 		pppapi_set_auth(ppp, PPPAUTHTYPE_PAP, PPP_User, PPP_Pass);
 		//pppapi_set_auth(ppp, PPPAUTHTYPE_NONE, PPP_User, PPP_Pass);
 
@@ -840,7 +872,7 @@ int gsm_RFOff()
 
 	if (f) {
 		cmd_Reg.timeoutMs = 500;
-		return atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_Str, NULL, 11, 10000, NULL, 0); // disable RF function
+		return atCmd_waitResponse("AT+CFUN=4\r\n", GSM_OK_STR, NULL, 11, 10000, NULL, 0); // disable RF function
 	}
 	return 1;
 }
@@ -864,7 +896,7 @@ int gsm_RFOn()
 
 	if (f) {
 		cmd_Reg.timeoutMs = 0;
-		return atCmd_waitResponse("AT+CFUN=1\r\n", GSM_OK_Str, NULL, 11, 10000, NULL, 0); // disable RF function
+		return atCmd_waitResponse("AT+CFUN=1\r\n", GSM_OK_STR, NULL, 11, 10000, NULL, 0); // disable RF function
 	}
 	return 1;
 }
@@ -877,7 +909,7 @@ static int sms_ready()
 	int res = atCmd_waitResponse("AT+CFUN?\r\n", "+CFUN: 1", NULL, -1, 1000, NULL, 0);
 	if (res != 1) return 0;
 
-	res = atCmd_waitResponse("AT+CMGF=1\r\n", GSM_OK_Str, NULL, -1, 1000, NULL, 0);
+	res = atCmd_waitResponse("AT+CMGF=1\r\n", GSM_OK_STR, NULL, -1, 1000, NULL, 0);
 	if (res != 1) return 0;
 	return 1;
 }
@@ -893,7 +925,7 @@ int smsSend(char *smsnum, char *msg)
 	sprintf(buf, "AT+CMGS=\"%s\"\r\n", smsnum);
 	int res = atCmd_waitResponse(buf, "> ", NULL, -1, 1000, NULL, 0);
 	if (res != 1) {
-		res = atCmd_waitResponse("\x1B", GSM_OK_Str, NULL, 1, 1000, NULL, 0);
+		res = atCmd_waitResponse("\x1B", GSM_OK_STR, NULL, 1, 1000, NULL, 0);
 		return 0;
 	}
 
@@ -903,7 +935,7 @@ int smsSend(char *smsnum, char *msg)
 	sprintf(msgbuf, "%s\x1A", msg);
 	res = atCmd_waitResponse(msgbuf, "+CMGS: ", "ERROR", len+1, 40000, NULL, 0);
 	if (res != 1) {
-		res = atCmd_waitResponse("\x1B", GSM_OK_Str, NULL, 1, 1000, NULL, 0);
+		res = atCmd_waitResponse("\x1B", GSM_OK_STR, NULL, 1, 1000, NULL, 0);
 		res = 0;
 	}
 
@@ -1107,6 +1139,39 @@ int smsDelete(int idx)
 	char buf[64];
 	sprintf(buf,"AT+CMGD=%d\r\n", idx);
 
-	return atCmd_waitResponse(buf, GSM_OK_Str, NULL, -1, 5000, NULL, 0);
+	return atCmd_waitResponse(buf, GSM_OK_STR, NULL, -1, 5000, NULL, 0);
 }
 
+void sim800_power_on()
+{
+    gpio_config_t io_conf;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1 << GSM_GPIO_PWKEY) + (1 << GSM_GPIO_RST) + (1 << GSM_GPIO_POWER);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&io_conf);
+
+    ESP_LOGI(TAG, "Power up ...");
+    set_sim800_pwrsrc();
+    set_sim800_rst();
+    set_sim800_pwkey();
+    clear_sim800_pwkey();
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    set_sim800_pwkey();
+    vTaskDelay(1900 / portTICK_PERIOD_MS);
+}
+    
+void sim800_reset()
+{
+    clear_sim800_rst();
+    vTaskDelay(1100 / portTICK_PERIOD_MS);
+    set_sim800_rst();
+}
+
+void sim800_power_off()
+{
+    ESP_LOGI(TAG, "Power down.");
+    clear_sim800_pwrsrc();
+}
