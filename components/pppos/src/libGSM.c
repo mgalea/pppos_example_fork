@@ -22,11 +22,9 @@
 #include "netif/ppp/pppos.h"
 #include "lwip/dns.h"
 
-
 #include "libGSM.h"
 
 void sim800_power_on();
-
 
 // === GSM configuration that you can set via 'make menuconfig'. ===
 #define UART_GPIO_TX CONFIG_GSM_RX
@@ -54,10 +52,9 @@ void sim800_power_on();
 #define BUF_SIZE (1024)
 #define GSM_OK_STR "OK"
 #define GSM_ERROR_STR "ERROR"
-#define PPPOSMUTEX_TIMEOUT 1000 / portTICK_RATE_MS
+#define PPPOSMUTEX_TIMEOUT 1000 / portTICK_PERIOD_MS
 
 #define PPPOS_CLIENT_STACK_SIZE 1024*3
-
 
 // shared variables, use mutex to access them
 static uint8_t gsm_status = GSM_STATE_FIRSTINIT;
@@ -1050,7 +1047,7 @@ void smsRead(SMS_Messages *SMSmesg, int sort)
 	if (sms_ready() == 0) return;
 
 	int size = 512;
-	char *rbuffer = malloc(size);
+	char *rbuffer = (char *)malloc(size);
 	if (rbuffer == NULL) return;
 
 	int res = atCmd_waitResponse("AT+CMGL=\"ALL\"\r\n", NULL, NULL, -1, 2000, &rbuffer, size);
@@ -1062,7 +1059,7 @@ void smsRead(SMS_Messages *SMSmesg, int sort)
 	int nmsg = numSMS(rbuffer);
 	if (nmsg > 0) {
 		// Allocate buffer for nmsg messages
-		SMS_Msg *messages = calloc(nmsg, sizeof(SMS_Msg));
+		SMS_Msg *messages = (SMS_Msg *) calloc(nmsg, sizeof(SMS_Msg));
 		if (messages == NULL) {
 			free(rbuffer);
 			return;
@@ -1075,7 +1072,7 @@ void smsRead(SMS_Messages *SMSmesg, int sort)
 			}
 		}
 		if ((SMSmesg->nmsg) && (sort != 0)) {
-			SMS_Msg *smessages = calloc(SMSmesg->nmsg, sizeof(SMS_Msg));
+			SMS_Msg *smessages = (SMS_Msg *)calloc(SMSmesg->nmsg, sizeof(SMS_Msg));
 			uint8_t mm[SMSmesg->nmsg];
 			memset(mm, 1, SMSmesg->nmsg);
 			if (sort > 0) {
